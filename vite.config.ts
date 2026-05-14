@@ -11,6 +11,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // DeepSeek 官方 API 代理（开发环境备用）
       '/api/deepseek': {
         target: 'https://api.deepseek.com',
         changeOrigin: true,

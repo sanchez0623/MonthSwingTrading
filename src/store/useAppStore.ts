@@ -21,9 +21,15 @@ interface AppState {
   amountUnit: '万元' | '元';
   setAmountUnit: (unit: '万元' | '元') => void;
 
-  // DeepSeek API
+  // AI API（兼容 OpenAI 格式）
   apiKey: string;
   setApiKey: (key: string) => void;
+  baseUrl: string;
+  setBaseUrl: (url: string) => void;
+  modelName: string;
+  setModelName: (name: string) => void;
+  useWebSearch: boolean;
+  setUseWebSearch: (enabled: boolean) => void;
 
   // 选股模块
   screeningResult: ScreeningResult | null;
@@ -61,9 +67,15 @@ export const useAppStore = create<AppState>()(
       amountUnit: '万元',
       setAmountUnit: (unit) => set({ amountUnit: unit }),
 
-      // DeepSeek API
+      // AI API（兼容 OpenAI 格式）
       apiKey: '',
       setApiKey: (key) => set({ apiKey: key }),
+      baseUrl: 'https://api.deepseek.com',
+      setBaseUrl: (url) => set({ baseUrl: url }),
+      modelName: 'deepseek-chat',
+      setModelName: (name) => set({ modelName: name }),
+      useWebSearch: true,
+      setUseWebSearch: (enabled) => set({ useWebSearch: enabled }),
 
       // 选股模块
       screeningResult: null,
@@ -101,6 +113,9 @@ export const useAppStore = create<AppState>()(
       name: 'month-swing-trading-store',
       partialize: (state) => ({
         apiKey: state.apiKey,
+        baseUrl: state.baseUrl,
+        modelName: state.modelName,
+        useWebSearch: state.useWebSearch,
         isDarkMode: state.isDarkMode,
         amountUnit: state.amountUnit,
         candidatePool: state.candidatePool,

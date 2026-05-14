@@ -23,6 +23,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -45,7 +47,7 @@ function RiskDisclaimer() {
 }
 
 export default function StockScreening() {
-  const { apiKey, setApiKey, screeningResult, setScreeningResult, candidatePool, setCandidatePool, addToCandidatePool, removeFromCandidatePool, setActiveTab } = useAppStore();
+  const { apiKey, setApiKey, baseUrl, setBaseUrl, modelName, setModelName, useWebSearch, setUseWebSearch, screeningResult, setScreeningResult, candidatePool, setCandidatePool, addToCandidatePool, removeFromCandidatePool, setActiveTab } = useAppStore();
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +64,7 @@ export default function StockScreening() {
     setError('');
     setRawContent('');
     try {
-      const { result, rawContent: raw } = await runScreening(apiKey);
+      const { result, rawContent: raw } = await runScreening({ apiKey, baseUrl, modelName, useWebSearch });
       setRawContent(raw);
       if (result) {
         setScreeningResult(result);
@@ -100,19 +102,44 @@ export default function StockScreening() {
 
   return (
     <Box>
-      {/* API Key 输入 */}
+      {/* AI API 配置 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            DeepSeek API Key
+            AI API 配置（兼容 OpenAI 格式）
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+
+          {/* 快捷预设 */}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+            {[
+              { label: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-chat' },
+              { label: 'DeepSeek V3', base: 'https://api.deepseek.com', model: 'deepseek-4v-pro' },
+              { label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o' },
+              { label: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+              { label: '硅基流动', base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+              { label: '本地 Ollama', base: 'http://localhost:11434/v1', model: 'qwen2.5:7b' },
+            ].map((preset) => (
+              <Chip
+                key={preset.label}
+                label={preset.label}
+                size="small"
+                variant="outlined"
+                clickable
+                onClick={() => { setBaseUrl(preset.base); setModelName(preset.model); }}
+                color={baseUrl === preset.base && modelName === preset.model ? 'primary' : 'default'}
+              />
+            ))}
+          </Box>
+
+          {/* API Key */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
             <TextField
               size="small"
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
+              label="API Key"
               fullWidth
               slotProps={{
                 input: {
@@ -126,12 +153,53 @@ export default function StockScreening() {
                 },
               }}
             />
-            <Tooltip title="保存Key">
-              <Button variant="outlined" size="small" startIcon={<SaveIcon />} onClick={() => setApiKey(apiKey)}>
+          </Box>
+
+          {/* Base URL */}
+          <TextField
+            size="small"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            label="Base URL"
+            placeholder="https://api.deepseek.com"
+            fullWidth
+            helperText="API 服务地址，支持任何 OpenAI 兼容格式"
+            sx={{ mb: 2 }}
+          />
+
+          {/* 模型名称 */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              label="模型名称"
+              placeholder="deepseek-chat / gpt-4o / qwen-plus 等"
+              fullWidth
+              helperText="对应 API 支持的模型 ID"
+            />
+            <Tooltip title="保存配置">
+              <Button variant="outlined" size="small" startIcon={<SaveIcon />} onClick={() => { setApiKey(apiKey); setBaseUrl(baseUrl); setModelName(modelName); }}>
                 保存
               </Button>
             </Tooltip>
           </Box>
+
+          {/* 联网搜索开关 */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={useWebSearch}
+                onChange={(e) => setUseWebSearch(e.target.checked)}
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="body2">
+                联网搜索（仅 DeepSeek 官方 API 支持，其他 API 请关闭）
+              </Typography>
+            }
+          />
         </CardContent>
       </Card>
 

@@ -4,13 +4,7 @@ import {
   Card,
   CardContent,
   Typography,
-  TextField,
   Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Slider,
   Table,
   TableBody,
   TableCell,
@@ -20,20 +14,26 @@ import {
   Chip,
   Alert,
   Divider,
+  LinearProgress,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useAppStore } from '../../store/useAppStore';
 import { calculateScore, rankStocks } from '../../engines/scoringEngine';
+import { aiScoreStock, type AIScoreData } from '../../services/deepseek';
 import type {
   ScoringResult,
+  ScoringInput,
+  BoardType,
   TechnicalIndicators,
   FundIndicators,
   MacroIndicators,
   FundamentalIndicators,
   EmotionValuationIndicators,
   DataSourceStatus,
-  BoardType,
   MACDStatus,
   RSIStatus,
   BollingerPosition,
@@ -58,74 +58,155 @@ import {
 function RiskDisclaimer() {
   return (
     <Alert severity="warning" sx={{ mt: 3, fontSize: '0.8rem' }}>
-      风险提示：评分结果基于输入指标自动计算，仅供参考。投资决策需结合多方面因素综合判断。
+      风险提示：AI评分基于模型推理和市场数据，仅供参考，不构成投资建议。数据可能存在延迟或偏差。
     </Alert>
   );
 }
 
-const defaultTechnical: TechnicalIndicators = {
-  macdStatus: '金叉', rsiValue: 55, rsiStatus: '中性',
-  bollingerPosition: '中轨附近', bollingerBandwidth: '正常',
-  maPattern: '多头', volumePattern: '量价配合', kLinePattern: '无特殊形态',
-};
-const defaultFund: FundIndicators = {
-  mainForceNetInflow: 0, netInflow5d: 0,
-  controlLevel: '中度控盘', controlPercent: 25,
-};
-const defaultMacro: MacroIndicators = { industryLogicScore: 8, shortTermDiffusionScore: 2, highFrequencyBonus: 0 };
-const defaultFundamental: FundamentalIndicators = {
-  revenueYoY: 10, netProfitYoY: 10, grossMarginTrend: '持平',
-  operatingCashFlowDirection: '正', cashFlowMatch: true, earningStability: '一般',
-};
-const defaultEmotion: EmotionValuationIndicators = {
-  peTtmPercentile: 50, dividendYield: 2, targetPriceDiff: 10, emotionLevel: '中性',
-};
+/** 将 AI 返回的字符串安全转换为枚举类型 */
+function safeCast<T extends string>(value: string, validValues: readonly string[], fallback: T): T {
+  return (validValues as readonly string[]).includes(value) ? (value as T) : fallback;
+}
 
-const BoldSubtitle = ({ children }: { children: React.ReactNode }) => (
-  <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }} gutterBottom>{children}</Typography>
-);
+/** 将 AI 评分数据转换为评分引擎需要的 ScoringInput */
+function convertToScoringInput(ai: AIScoreData): ScoringInput {
+  const t = ai.technical;
+  const f = ai.fund;
+  const m = ai.macro;
+  const fn = ai.fundamental;
+  const e = ai.emotion;
+
+  const macdValues = ['金叉', '死叉', '零轴上穿', '零轴下穿', '红柱放大', '红柱缩小', '绿柱放大', '绿柱缩小'] as const;
+  const rsiValues = ['超买', '超卖', '顶背离', '底背离', '健康', '中性'] as const;
+  const bollPosValues = ['中上轨', '中下轨', '上轨附近', '下轨附近', '中轨附近'] as const;
+  const bollBwValues = ['扩张', '收窄', '正常'] as const;
+  const maValues = ['多头', '空头', '粘合', '分散'] as const;
+  const volValues = ['放量', '缩量', '量价配合', '缩量止跌', '放量突破'] as const;
+  const kValues = ['锤子线', '空方炮', '阳包阴', '十字星', '大阳线', '大阴线', '无特殊形态'] as const;
+  const ctrlValues = ['完全控盘', '高度控盘', '中度控盘', '轻度控盘', '无控盘'] as const;
+  const emoValues = ['极度亢奋', '偏亢奋', '中性', '偏悲观', '极度悲观'] as const;
+  const dsValues = ['官方已正式披露', '多平台交叉验证', 'UGC来源', '财报延迟披露'] as const;
+  const boardValues = ['主板', '创业板', '科创板'] as const;
+  const gmValues = ['上升', '持平', '下降'] as const;
+  const cfValues = ['正', '负', '持平'] as const;
+  const esValues = ['稳健', '一般', '偏差'] as const;
+
+  return {
+    stockName: ai.stockName,
+    stockCode: ai.stockCode,
+    board: safeCast(ai.board, boardValues, '主板' as BoardType),
+    currentPrice: ai.currentPrice,
+    technical: {
+      macdStatus: safeCast(t.macdStatus, macdValues, '金叉' as MACDStatus),
+      rsiValue: t.rsiValue,
+      rsiStatus: safeCast(t.rsiStatus, rsiValues, '中性' as RSIStatus),
+      bollingerPosition: safeCast(t.bollingerPosition, bollPosValues, '中轨附近' as BollingerPosition),
+      bollingerBandwidth: safeCast(t.bollingerBandwidth, bollBwValues, '正常' as BollingerBandwidth),
+      maPattern: safeCast(t.maPattern, maValues, '多头' as MAPattern),
+      volumePattern: safeCast(t.volumePattern, volValues, '量价配合' as VolumePattern),
+      kLinePattern: safeCast(t.kLinePattern, kValues, '无特殊形态' as KLinePattern),
+    },
+    fund: {
+      mainForceNetInflow: f.mainForceNetInflow,
+      netInflow5d: f.netInflow5d,
+      controlLevel: safeCast(f.controlLevel, ctrlValues, '中度控盘' as ControlLevel),
+      controlPercent: f.controlPercent,
+    },
+    macro: {
+      industryLogicScore: Math.min(m.industryLogicScore, 15),
+      shortTermDiffusionScore: Math.min(m.shortTermDiffusionScore, 5),
+      highFrequencyBonus: Math.min(m.highFrequencyBonus, 2),
+    },
+    fundamental: {
+      revenueYoY: fn.revenueYoY,
+      netProfitYoY: fn.netProfitYoY,
+      grossMarginTrend: safeCast(fn.grossMarginTrend, gmValues, '持平' as const),
+      operatingCashFlowDirection: safeCast(fn.operatingCashFlowDirection, cfValues, '正' as const),
+      cashFlowMatch: fn.cashFlowMatch,
+      earningStability: safeCast(fn.earningStability, esValues, '一般' as const),
+    },
+    emotion: {
+      peTtmPercentile: e.peTtmPercentile,
+      dividendYield: e.dividendYield,
+      targetPriceDiff: e.targetPriceDiff,
+      emotionLevel: safeCast(e.emotionLevel, emoValues, '中性' as EmotionLevel),
+    },
+    dataSourceStatus: safeCast(ai.dataSourceStatus, dsValues, '多平台交叉验证' as DataSourceStatus),
+  };
+}
 
 export default function StockScoring() {
-  const { candidatePool, scoringResults, setScoringResults, setActiveTab } = useAppStore();
+  const {
+    candidatePool, removeFromCandidatePool,
+    scoringResults, setScoringResults,
+    apiKey, baseUrl, modelName, useWebSearch,
+    setActiveTab,
+  } = useAppStore();
 
-  const [stockName, setStockName] = useState('');
-  const [stockCode, setStockCode] = useState('');
-  const [board, setBoard] = useState<BoardType>('主板');
-  const [currentPrice, setCurrentPrice] = useState(0);
-  const [technical, setTechnical] = useState<TechnicalIndicators>(defaultTechnical);
-  const [fund, setFund] = useState<FundIndicators>(defaultFund);
-  const [macro, setMacro] = useState<MacroIndicators>(defaultMacro);
-  const [fundamental, setFundamental] = useState<FundamentalIndicators>(defaultFundamental);
-  const [emotion, setEmotion] = useState<EmotionValuationIndicators>(defaultEmotion);
-  const [dataSource, setDataSource] = useState<DataSourceStatus>('官方已正式披露');
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [currentStockName, setCurrentStockName] = useState('');
+  const [error, setError] = useState('');
+  const [selectedRadar, setSelectedRadar] = useState<number>(0);
 
-  const importFromPool = () => {
-    if (candidatePool.length > 0) {
-      const first = candidatePool[0];
-      setStockName(first.name);
-      setStockCode(first.code);
+  const handleAIScoring = async () => {
+    if (!apiKey.trim()) {
+      setError('请先在选股模块配置 API Key');
+      return;
     }
-  };
+    if (candidatePool.length === 0) {
+      setError('候选池为空，请先执行 AI 选股');
+      return;
+    }
 
-  const handleScore = () => {
-    const input = {
-      stockName, stockCode, board, currentPrice,
-      technical, fund, macro, fundamental, emotion,
-      dataSourceStatus: dataSource,
-    };
-    const result = calculateScore(input);
-    const existing = scoringResults.filter((r) => r.stockCode !== stockCode);
-    const ranked = rankStocks([...existing, result]);
+    setLoading(true);
+    setError('');
+    setProgress({ current: 0, total: candidatePool.length });
+    setCurrentStockName('');
+
+    const config = { apiKey, baseUrl, modelName, useWebSearch };
+    const results: ScoringResult[] = [];
+
+    for (let i = 0; i < candidatePool.length; i++) {
+      const stock = candidatePool[i];
+      setCurrentStockName(stock.name);
+      setProgress({ current: i + 1, total: candidatePool.length });
+
+      try {
+        const { data } = await aiScoreStock(config, stock);
+        if (data) {
+          const input = convertToScoringInput(data);
+          const result = calculateScore(input);
+          results.push(result);
+        } else {
+          // AI 返回格式无法解析，给一个默认低分
+          results.push({
+            stockName: stock.name,
+            stockCode: stock.code,
+            totalScore: 0,
+            dimensions: [],
+            recommendation: '不推荐',
+            dataSourceWarning: 'AI数据解析失败',
+          });
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : '未知错误';
+        results.push({
+          stockName: stock.name,
+          stockCode: stock.code,
+          totalScore: 0,
+          dimensions: [],
+          recommendation: '不推荐',
+          dataSourceWarning: `评分失败: ${errMsg}`,
+        });
+      }
+    }
+
+    const ranked = rankStocks(results);
     setScoringResults(ranked);
+    setLoading(false);
+    setCurrentStockName('');
   };
-
-  const radarData = scoringResults.length > 0
-    ? scoringResults[0].dimensions.map((d) => ({
-        dimension: d.name,
-        score: d.score,
-        maxScore: d.maxScore,
-      }))
-    : [];
 
   const recColor = (rec: ScoringResult['recommendation']) => {
     if (rec === '首选') return 'success' as const;
@@ -134,182 +215,101 @@ export default function StockScoring() {
     return 'error' as const;
   };
 
+  const radarData = scoringResults.length > 0 && selectedRadar < scoringResults.length
+    ? scoringResults[selectedRadar].dimensions.map((d) => ({
+        dimension: d.name,
+        score: d.score,
+        maxScore: d.maxScore,
+      }))
+    : [];
+
   return (
     <Box>
-      <Card sx={{ mb: 2 }}>
+      {/* 候选池概览 */}
+      <Card sx={{ mb: 3 }}>
         <CardContent>
-          <BoldSubtitle>股票信息</BoldSubtitle>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
-            <Button variant="outlined" size="small" onClick={importFromPool} disabled={candidatePool.length === 0}>
-              从候选池导入
-            </Button>
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-            <TextField label="股票名称" size="small" value={stockName} onChange={(e) => setStockName(e.target.value)} />
-            <TextField label="股票代码" size="small" value={stockCode} onChange={(e) => setStockCode(e.target.value)} />
-            <FormControl size="small">
-              <InputLabel>板块</InputLabel>
-              <Select value={board} label="板块" onChange={(e) => setBoard(e.target.value as BoardType)}>
-                <MenuItem value="主板">主板</MenuItem>
-                <MenuItem value="创业板">创业板</MenuItem>
-                <MenuItem value="科创板">科创板</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField label="当前价格" size="small" type="number" value={currentPrice || ''} onChange={(e) => setCurrentPrice(Number(e.target.value))} />
-          </Box>
-        </CardContent>
-      </Card>
+          <Typography variant="h6" gutterBottom>候选股票池</Typography>
+          {candidatePool.length === 0 ? (
+            <Alert severity="info">
+              候选池为空。请先在「AI选股」模块执行选股，或手动添加候选股。
+            </Alert>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                共 {candidatePool.length} 只候选股票，点击下方按钮 AI 自动评分
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                {candidatePool.map((stock) => (
+                  <Chip
+                    key={stock.code}
+                    label={`${stock.name} (${stock.code})`}
+                    variant="outlined"
+                    onDelete={() => removeFromCandidatePool(stock.code)}
+                    size="small"
+                  />
+                ))}
+              </Box>
+            </>
+          )}
 
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>技术面（35分，35%）</BoldSubtitle>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-            <FormControl size="small"><InputLabel>MACD状态</InputLabel>
-              <Select value={technical.macdStatus} label="MACD状态" onChange={(e) => setTechnical({ ...technical, macdStatus: e.target.value as MACDStatus })}>
-                {['金叉','死叉','零轴上穿','零轴下穿','红柱放大','红柱缩小','绿柱放大','绿柱缩小'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <TextField label="RSI(14)" size="small" type="number" value={technical.rsiValue} onChange={(e) => setTechnical({ ...technical, rsiValue: Number(e.target.value) })} />
-            <FormControl size="small"><InputLabel>RSI状态</InputLabel>
-              <Select value={technical.rsiStatus} label="RSI状态" onChange={(e) => setTechnical({ ...technical, rsiStatus: e.target.value as RSIStatus })}>
-                {['超买','超卖','顶背离','底背离','健康','中性'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>布林带位置</InputLabel>
-              <Select value={technical.bollingerPosition} label="布林带位置" onChange={(e) => setTechnical({ ...technical, bollingerPosition: e.target.value as BollingerPosition })}>
-                {['中上轨','中下轨','上轨附近','下轨附近','中轨附近'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>布林带带宽</InputLabel>
-              <Select value={technical.bollingerBandwidth} label="布林带带宽" onChange={(e) => setTechnical({ ...technical, bollingerBandwidth: e.target.value as BollingerBandwidth })}>
-                {['扩张','收窄','正常'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>均线排列</InputLabel>
-              <Select value={technical.maPattern} label="均线排列" onChange={(e) => setTechnical({ ...technical, maPattern: e.target.value as MAPattern })}>
-                {['多头','空头','粘合','分散'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>成交量</InputLabel>
-              <Select value={technical.volumePattern} label="成交量" onChange={(e) => setTechnical({ ...technical, volumePattern: e.target.value as VolumePattern })}>
-                {['放量','缩量','量价配合','缩量止跌','放量突破'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>K线形态</InputLabel>
-              <Select value={technical.kLinePattern} label="K线形态" onChange={(e) => setTechnical({ ...technical, kLinePattern: e.target.value as KLinePattern })}>
-                {['锤子线','空方炮','阳包阴','十字星','大阳线','大阴线','无特殊形态'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
+          {/* AI 评分按钮 */}
+          <Box sx={{ textAlign: 'center', mt: 2 }}>
+            {loading ? (
+              <Box sx={{ width: '100%' }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  正在分析：{currentStockName}（{progress.current}/{progress.total}）
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={(progress.current / progress.total) * 100}
+                  sx={{ mb: 1 }}
+                />
+              </Box>
+            ) : (
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<AssessmentIcon />}
+                onClick={handleAIScoring}
+                disabled={candidatePool.length === 0}
+                sx={{ px: 6, py: 1.5, fontSize: '1.1rem' }}
+              >
+                AI 一键评分
+              </Button>
+            )}
           </Box>
         </CardContent>
       </Card>
 
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>资金面（20分，20%）</BoldSubtitle>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-            <TextField label="主力大单净流入(万元)" size="small" type="number" value={fund.mainForceNetInflow} onChange={(e) => setFund({ ...fund, mainForceNetInflow: Number(e.target.value) })} />
-            <TextField label="5日累计净流入(万元)" size="small" type="number" value={fund.netInflow5d} onChange={(e) => setFund({ ...fund, netInflow5d: Number(e.target.value) })} />
-            <FormControl size="small"><InputLabel>控盘程度</InputLabel>
-              <Select value={fund.controlLevel} label="控盘程度" onChange={(e) => setFund({ ...fund, controlLevel: e.target.value as ControlLevel })}>
-                {['完全控盘','高度控盘','中度控盘','轻度控盘','无控盘'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <TextField label="控盘度(%)" size="small" type="number" value={fund.controlPercent} onChange={(e) => setFund({ ...fund, controlPercent: Number(e.target.value) })} />
-          </Box>
-        </CardContent>
-      </Card>
+      {/* 错误提示 */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+      )}
 
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>宏观/产业（20分，20%）</BoldSubtitle>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 2 }}>
-            <Box>
-              <Typography variant="caption">中长期产业逻辑 ({macro.industryLogicScore}/15)</Typography>
-              <Slider value={macro.industryLogicScore} onChange={(_, v) => setMacro({ ...macro, industryLogicScore: v as number })} min={0} max={15} marks step={1} valueLabelDisplay="auto" />
-            </Box>
-            <Box>
-              <Typography variant="caption">短期预期扩散 ({macro.shortTermDiffusionScore}/5)</Typography>
-              <Slider value={macro.shortTermDiffusionScore} onChange={(_, v) => setMacro({ ...macro, shortTermDiffusionScore: v as number })} min={0} max={5} marks step={1} valueLabelDisplay="auto" />
-            </Box>
-            <Box>
-              <Typography variant="caption">产业链高频加分 ({macro.highFrequencyBonus}/2)</Typography>
-              <Slider value={macro.highFrequencyBonus} onChange={(_, v) => setMacro({ ...macro, highFrequencyBonus: v as number })} min={0} max={2} marks step={1} valueLabelDisplay="auto" />
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
-
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>基本面（15分，15%）</BoldSubtitle>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-            <TextField label="营收同比(%)" size="small" type="number" value={fundamental.revenueYoY} onChange={(e) => setFundamental({ ...fundamental, revenueYoY: Number(e.target.value) })} />
-            <TextField label="归母净利同比(%)" size="small" type="number" value={fundamental.netProfitYoY} onChange={(e) => setFundamental({ ...fundamental, netProfitYoY: Number(e.target.value) })} />
-            <FormControl size="small"><InputLabel>毛利率趋势</InputLabel>
-              <Select value={fundamental.grossMarginTrend} label="毛利率趋势" onChange={(e) => setFundamental({ ...fundamental, grossMarginTrend: e.target.value as '上升' | '持平' | '下降' })}>
-                <MenuItem value="上升">上升</MenuItem><MenuItem value="持平">持平</MenuItem><MenuItem value="下降">下降</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>经营现金流</InputLabel>
-              <Select value={fundamental.operatingCashFlowDirection} label="经营现金流" onChange={(e) => setFundamental({ ...fundamental, operatingCashFlowDirection: e.target.value as '正' | '负' | '持平' })}>
-                <MenuItem value="正">正</MenuItem><MenuItem value="负">负</MenuItem><MenuItem value="持平">持平</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl size="small"><InputLabel>盈利稳健性</InputLabel>
-              <Select value={fundamental.earningStability} label="盈利稳健性" onChange={(e) => setFundamental({ ...fundamental, earningStability: e.target.value as '稳健' | '一般' | '偏差' })}>
-                <MenuItem value="稳健">稳健</MenuItem><MenuItem value="一般">一般</MenuItem><MenuItem value="偏差">偏差</MenuItem>
-              </Select>
-            </FormControl>
-          </Box>
-        </CardContent>
-      </Card>
-
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>情绪/估值（10分，10%）</BoldSubtitle>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-            <TextField label="PE(TTM)分位(%)" size="small" type="number" value={emotion.peTtmPercentile} onChange={(e) => setEmotion({ ...emotion, peTtmPercentile: Number(e.target.value) })} />
-            <TextField label="股息率(%)" size="small" type="number" value={emotion.dividendYield} onChange={(e) => setEmotion({ ...emotion, dividendYield: Number(e.target.value) })} />
-            <TextField label="目标价差异(%)" size="small" type="number" value={emotion.targetPriceDiff} onChange={(e) => setEmotion({ ...emotion, targetPriceDiff: Number(e.target.value) })} />
-            <FormControl size="small"><InputLabel>情绪位置</InputLabel>
-              <Select value={emotion.emotionLevel} label="情绪位置" onChange={(e) => setEmotion({ ...emotion, emotionLevel: e.target.value as EmotionLevel })}>
-                {['极度亢奋','偏亢奋','中性','偏悲观','极度悲观'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-              </Select>
-            </FormControl>
-          </Box>
-        </CardContent>
-      </Card>
-
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <BoldSubtitle>数据溯源</BoldSubtitle>
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel>数据来源状态</InputLabel>
-            <Select value={dataSource} label="数据来源状态" onChange={(e) => setDataSource(e.target.value as DataSourceStatus)}>
-              <MenuItem value="官方已正式披露">官方已正式披露</MenuItem>
-              <MenuItem value="多平台交叉验证">多平台交叉验证</MenuItem>
-              <MenuItem value="UGC来源">UGC来源</MenuItem>
-              <MenuItem value="财报延迟披露">财报延迟披露</MenuItem>
-            </Select>
-          </FormControl>
-        </CardContent>
-      </Card>
-
-      <Box sx={{ textAlign: 'center', mb: 3 }}>
-        <Button variant="contained" size="large" startIcon={<AssessmentIcon />} onClick={handleScore} sx={{ px: 6, py: 1.5 }}>
-          一键评分
-        </Button>
-      </Box>
-
+      {/* 评分结果 */}
       {scoringResults.length > 0 && (
         <>
-          <Typography variant="h6" gutterBottom>评分结果</Typography>
+          <Typography variant="h6" gutterBottom>评分结果（按总分排名）</Typography>
 
+          {/* 雷达图 — 可切换股票 */}
           {radarData.length > 0 && (
             <Card sx={{ mb: 2 }}>
               <CardContent>
-                <Typography variant="subtitle2" gutterBottom>雷达图 — {scoringResults[0].stockName}</Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                  {scoringResults.map((r, i) => (
+                    <Chip
+                      key={r.stockCode}
+                      label={`${r.stockName} ${r.totalScore.toFixed(1)}分`}
+                      color={i === selectedRadar ? 'primary' : 'default'}
+                      onClick={() => setSelectedRadar(i)}
+                      clickable
+                      size="small"
+                    />
+                  ))}
+                </Box>
+                <Typography variant="subtitle2" gutterBottom>
+                  雷达图 — {scoringResults[selectedRadar].stockName}（总分 {scoringResults[selectedRadar].totalScore.toFixed(2)}）
+                </Typography>
                 <ResponsiveContainer width="100%" height={300}>
                   <RadarChart data={radarData}>
                     <PolarGrid />
@@ -324,19 +324,35 @@ export default function StockScoring() {
             </Card>
           )}
 
+          {/* 评分总表 */}
           <TableContainer component={Card} sx={{ mb: 2 }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>排名</TableCell><TableCell>股票</TableCell><TableCell>代码</TableCell><TableCell>总分</TableCell><TableCell>推荐</TableCell><TableCell>数据警告</TableCell>
+                  <TableCell>排名</TableCell>
+                  <TableCell>股票</TableCell>
+                  <TableCell>代码</TableCell>
+                  <TableCell>技术面</TableCell>
+                  <TableCell>资金面</TableCell>
+                  <TableCell>宏观</TableCell>
+                  <TableCell>基本面</TableCell>
+                  <TableCell>情绪</TableCell>
+                  <TableCell>总分</TableCell>
+                  <TableCell>推荐</TableCell>
+                  <TableCell>数据警告</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {scoringResults.map((r, i) => (
-                  <TableRow key={r.stockCode}>
+                  <TableRow key={r.stockCode} hover onClick={() => setSelectedRadar(i)} sx={{ cursor: 'pointer' }}>
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell>{r.stockName}</TableCell>
+                    <TableCell><strong>{r.stockName}</strong></TableCell>
                     <TableCell>{r.stockCode}</TableCell>
+                    <TableCell>{r.dimensions.find(d => d.name === '技术面')?.score.toFixed(1) ?? '—'}</TableCell>
+                    <TableCell>{r.dimensions.find(d => d.name === '资金面')?.score.toFixed(1) ?? '—'}</TableCell>
+                    <TableCell>{r.dimensions.find(d => d.name === '宏观/产业')?.score.toFixed(1) ?? '—'}</TableCell>
+                    <TableCell>{r.dimensions.find(d => d.name === '基本面')?.score.toFixed(1) ?? '—'}</TableCell>
+                    <TableCell>{r.dimensions.find(d => d.name === '情绪/估值')?.score.toFixed(1) ?? '—'}</TableCell>
                     <TableCell><strong>{r.totalScore.toFixed(2)}</strong></TableCell>
                     <TableCell><Chip label={r.recommendation} color={recColor(r.recommendation)} size="small" /></TableCell>
                     <TableCell>{r.dataSourceWarning ?? '—'}</TableCell>
@@ -346,13 +362,18 @@ export default function StockScoring() {
             </Table>
           </TableContainer>
 
+          {/* 每只股票详细评分 */}
           {scoringResults.map((r) => (
             <Card key={r.stockCode} sx={{ mb: 2 }}>
               <CardContent>
-                <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{r.stockName} ({r.stockCode}) — 总分 {r.totalScore.toFixed(2)}</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                  {r.stockName} ({r.stockCode}) — 总分 {r.totalScore.toFixed(2)}
+                </Typography>
                 {r.dimensions.map((d) => (
                   <Box key={d.name} sx={{ mt: 1 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{d.name}: {d.score.toFixed(2)}/{d.maxScore} ({(d.weight * 100).toFixed(0)}%)</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {d.name}: {d.score.toFixed(2)}/{d.maxScore} ({(d.weight * 100).toFixed(0)}%)
+                    </Typography>
                     {d.details.map((det, j) => (
                       <Box key={j} sx={{ pl: 2 }}>
                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>{det}</Typography>
