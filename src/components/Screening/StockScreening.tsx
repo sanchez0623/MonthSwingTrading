@@ -25,6 +25,8 @@ import {
   DialogActions,
   Switch,
   FormControlLabel,
+  Snackbar,
+  Alert as MuiAlert,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -54,8 +56,15 @@ export default function StockScreening() {
   const [rawContent, setRawContent] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
   const [manualStock, setManualStock] = useState<Partial<CandidateStock>>({});
+  const [saved, setSaved] = useState(false);
 
-  const handleScreening = async () => {
+  const handleSave = () => {
+    // Zustand persist 会自动持久化，这里触发一次写入并给反馈
+    setApiKey(apiKey);
+    setBaseUrl(baseUrl);
+    setModelName(modelName);
+    setSaved(true);
+  };
     if (!apiKey.trim()) {
       setError('请先输入并保存 DeepSeek API Key');
       return;
@@ -179,8 +188,14 @@ export default function StockScreening() {
               helperText="对应 API 支持的模型 ID"
             />
             <Tooltip title="保存配置">
-              <Button variant="outlined" size="small" startIcon={<SaveIcon />} onClick={() => { setApiKey(apiKey); setBaseUrl(baseUrl); setModelName(modelName); }}>
-                保存
+              <Button
+                variant={saved ? 'contained' : 'outlined'}
+                size="small"
+                color={saved ? 'success' : 'primary'}
+                startIcon={<SaveIcon />}
+                onClick={handleSave}
+              >
+                {saved ? '已保存' : '保存'}
               </Button>
             </Tooltip>
           </Box>
@@ -379,6 +394,18 @@ export default function StockScreening() {
       </Dialog>
 
       <RiskDisclaimer />
+
+      {/* 保存成功提示 */}
+      <Snackbar
+        open={saved}
+        autoHideDuration={2000}
+        onClose={() => setSaved(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <MuiAlert severity="success" variant="filled" onClose={() => setSaved(false)}>
+          配置已保存
+        </MuiAlert>
+      </Snackbar>
     </Box>
   );
 }
