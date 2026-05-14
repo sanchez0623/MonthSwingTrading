@@ -131,7 +131,17 @@ function convertToScoringInput(ai: AIScoreData): ScoringInput {
       targetPriceDiff: e.targetPriceDiff,
       emotionLevel: safeCast(e.emotionLevel, emoValues, '中性' as EmotionLevel),
     },
-    dataSourceStatus: safeCast(ai.dataSourceStatus, dsValues, '多平台交叉验证' as DataSourceStatus),
+    // 数据可信度自动降级：如果基本面关键数据全为0，强制降级为UGC来源
+    dataSourceStatus: (() => {
+      const declared = safeCast(ai.dataSourceStatus, dsValues, '多平台交叉验证' as DataSourceStatus);
+      // 如果营收和净利同比都是0，说明AI没查到真实财报数据
+      const noFundamentalData = fn.revenueYoY === 0 && fn.netProfitYoY === 0;
+      // 如果资金面主力净流入为0且5日流入也为0，说明没查到真实资金流向
+      const noFundData = f.mainForceNetInflow === 0 && f.netInflow5d === 0;
+      if (noFundamentalData && noFundData) return 'UGC来源' as DataSourceStatus;
+      if (noFundamentalData) return '财报延迟披露' as DataSourceStatus;
+      return declared;
+    })(),
   };
 }
 
@@ -172,33 +182,45 @@ export default function StockScoring() {
       setCurrentStockName(stock.name);
       setProgress({ current: i + 1, total: candidatePool.length });
 
-      try {
-        const { data } = await aiScoreStock(config, stock);
-        if (data) {
-          const input = convertToScoringInput(data);
-          const result = calculateScore(input);
-          results.push(result);
-        } else {
-          // AI 返回格式无法解析，给一个默认低分
-          results.push({
-            stockName: stock.name,
-            stockCode: stock.code,
-            totalScore: 0,
-            dimensions: [],
-            recommendation: '不推荐',
-            dataSourceWarning: 'AI数据解析失败',
-          });
+      let data: AIScoreData | null = null;
+      let lastError = '';
+
+      // 重试机制：失败时最多重试1次
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await aiScoreStock(config, stock);
+          if (res.data) {
+            data = res.data;
+            break;
+          }
+          lastError = 'AI返回数据格式错误';
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : '未知错误';
         }
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : '未知错误';
+        if (attempt === 0) {
+          // 重试前等待 1.5 秒，避免限流
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+
+      if (data) {
+        const input = convertToScoringInput(data);
+        const result = calculateScore(input);
+        results.push(result);
+      } else {
         results.push({
           stockName: stock.name,
           stockCode: stock.code,
           totalScore: 0,
           dimensions: [],
           recommendation: '不推荐',
-          dataSourceWarning: `评分失败: ${errMsg}`,
+          dataSourceWarning: `评分失败: ${lastError}`,
         });
+      }
+
+      // 逐股间隔 800ms，避免 API 限流
+      if (i < candidatePool.length - 1) {
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
 
