@@ -65,6 +65,8 @@ export default function StockScreening() {
     setModelName(modelName);
     setSaved(true);
   };
+
+  const handleScreening = async () => {
     if (!apiKey.trim()) {
       setError('请先输入并保存 DeepSeek API Key');
       return;
@@ -176,8 +178,8 @@ export default function StockScreening() {
             sx={{ mb: 2 }}
           />
 
-          {/* 模型名称 */}
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          {/* 模型名称 + 保存 */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
             <TextField
               size="small"
               value={modelName}
@@ -187,17 +189,16 @@ export default function StockScreening() {
               fullWidth
               helperText="对应 API 支持的模型 ID"
             />
-            <Tooltip title="保存配置">
-              <Button
-                variant={saved ? 'contained' : 'outlined'}
-                size="small"
-                color={saved ? 'success' : 'primary'}
-                startIcon={<SaveIcon />}
-                onClick={handleSave}
-              >
-                {saved ? '已保存' : '保存'}
-              </Button>
-            </Tooltip>
+            <Button
+              variant={saved ? 'contained' : 'outlined'}
+              size="small"
+              color={saved ? 'success' : 'primary'}
+              startIcon={<SaveIcon />}
+              onClick={handleSave}
+              sx={{ mt: 0.8, flexShrink: 0, minWidth: 80 }}
+            >
+              {saved ? '已保存' : '保存'}
+            </Button>
           </Box>
 
           {/* 联网搜索开关 */}
