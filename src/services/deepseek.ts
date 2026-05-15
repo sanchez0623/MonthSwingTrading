@@ -88,6 +88,15 @@ function isDeepSeekAPI(baseUrl: string): boolean {
   return lower.includes('deepseek.com') || lower.includes('api.deepseek');
 }
 
+/** DeepSeek 专属参数：开启思考链 + 高推理强度 */
+function deepSeekExtraParams(baseUrl: string): Record<string, unknown> {
+  if (!isDeepSeekAPI(baseUrl)) return {};
+  return {
+    thinking: { type: 'enabled' },
+    reasoning_effort: 'high',
+  };
+}
+
 export async function runScreening(config: LLMConfig): Promise<{
   result: ScreeningResult | null;
   rawContent: string;
@@ -112,6 +121,7 @@ export async function runScreening(config: LLMConfig): Promise<{
             content: `请基于最新的A股市场数据，执行月度波段选股预筛选。今天是${new Date().toISOString().slice(0, 10)}。`,
           },
         ],
+        ...deepSeekExtraParams(config.baseUrl),
         // web_search 仅 DeepSeek 官方 API 支持
         ...(config.useWebSearch !== false && isDeepSeekAPI(config.baseUrl)
           ? {
@@ -151,6 +161,7 @@ export async function chatWithLLM(
     const body: Record<string, unknown> = {
       model: config.modelName,
       messages,
+      ...deepSeekExtraParams(config.baseUrl),
     };
     // web_search 仅 DeepSeek 官方 API 且用户启用时才添加
     if (useWebSearch && isDeepSeekAPI(config.baseUrl)) {
@@ -329,6 +340,7 @@ export async function aiScoreStock(
             content: `请分析股票「${stock.name}」（代码：${stock.code}，所属主线：${stock.board}）的最新市场数据，给出五维度评分指标。今天是${new Date().toISOString().slice(0, 10)}。`,
           },
         ],
+        ...deepSeekExtraParams(config.baseUrl),
         ...(config.useWebSearch !== false && isDeepSeekAPI(config.baseUrl)
           ? {
               tools: [{ type: 'web_search', web_search: {} }],
